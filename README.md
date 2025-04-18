@@ -1,83 +1,100 @@
-# Script to Podcast Generator
+# Lunii Story Maker - Script Generation
 
-A Python tool that converts text scripts into podcast-ready audio files using OpenAI's text-to-speech API.
+This tool helps transform text stories into structured scripts that can be used for text-to-voice generation.
 
 ## Features
 
-- Convert text scripts to high-quality audio using OpenAI's TTS
-- Support for multiple voice options
-- Automatic text chunking and processing
-- WAV file output format
-- Progress tracking and error handling
-- Configurable audio parameters
+- Automatically identifies different voices/characters in the text
+- Splits text into appropriate fragments for each voice
+- Adds emotional instructions where needed
+- Generates a structured JSON output that can be used by text-to-voice functionality
+- Verifies the generated script for correctness
 
-## Project Structure
+## Prerequisites
 
-```
-script_to_podcast/
-├── requirements.txt    # Project dependencies
-├── README.md          # Project documentation
-├── .env              # Environment variables (create from .env.example)
-├── src/              # Source code
-├── tests/            # Test files
-├── input/            # Input script files
-└── output/           # Generated audio files
-```
+- Python 3.8 or higher
+- OpenAI API key
 
-## Setup
+## Installation
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd script_to_podcast
-   ```
-
-2. Create and activate virtual environment:
+1. Clone this repository
+2. Create a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
-
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-
-4. Configure environment:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your OpenAI API key and preferences
+4. Copy `.env.example` to `.env` and add your OpenAI API key:
+   ```
+   OPENAI_API_KEY=your_api_key_here
    ```
 
-## Development Guidelines
+## Usage
 
-- Follow PEP 8 style guide
-- Use type hints
-- Write docstrings in Google style
-- Maintain test coverage above 80%
-- Run tests before committing:
-  ```bash
-  pytest
-  ```
+1. Create a text file with your story (e.g., `story.txt`)
 
-## Code Style
+2. Run the script generator:
+   ```bash
+   python src/main.py story.txt
+   ```
+   
+   By default, the script will be saved to `output/scripts/script.json`. You can specify a different output path using the `-o` option:
+   ```bash
+   python src/main.py story.txt -o my_script.json
+   ```
 
-The project uses:
-- Black for code formatting
-- isort for import sorting
-- flake8 for linting
+## Output Format
 
-Configure your editor to use these tools or run them manually:
-```bash
-black .
-isort .
-flake8
+The generated script will be a JSON file with the following structure:
+
+```json
+{
+    "voices": {
+        "voice_name": {
+            "voice": "name of the openai voice",
+            "instructions": "instructions for the openai TTS endpoint"
+        }
+    },
+    "fragments": [
+        {
+            "voice_name": "voice",
+            "text": "text",
+            "instructions": "optional additional instructions"
+        }
+    ]
+}
 ```
 
-## Security
+- `voices`: Defines the available voices and their default instructions
+- `fragments`: Contains the text fragments to be spoken, with their assigned voices and optional specific instructions
 
-- Never commit API keys or sensitive data
-- Always use environment variables for credentials
-- Validate all input data
-- Implement rate limiting for API calls
+## OpenAI Voices
+
+The script generator will automatically assign appropriate OpenAI voices to characters. Available voices are:
+- alloy
+- echo
+- fable
+- onyx
+- nova
+- shimmer
+
+## Error Handling
+
+The script includes various error checks:
+- Validates input file existence and readability
+- Verifies the generated script structure
+- Handles OpenAI API errors gracefully
+
+If any errors occur, they will be printed to the console with appropriate error messages.
+
+## Contributing
+
+Feel free to open issues or submit pull requests for any improvements or bug fixes.
+
+## License
+
+[Your chosen license]
 

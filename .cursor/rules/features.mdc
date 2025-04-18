@@ -4,11 +4,13 @@ globs:
 alwaysApply: true
 ---
 
-# Features list
+# script-generation
 
-## input data
+## main purpose
 
-the input/scripts folder contains a json with the following structure
+The purpose of this script is to transform a text (e.g. a short story) into a script that can be used by the text-to-voice functionality.
+
+The input is a simple text file, the output is a JSON with the following structure:
 
 ```
 {
@@ -41,9 +43,36 @@ Each fragment can contain instructions that, if present, will replace the defaul
 
 The main purpose of this project is to automatically produce audiofles for each fragment, calling OpenAI TTS endpoints. 
 
+## structured output
+
+use openai structured output to ensure the format of the generated script follows the expected schema.
+
+## text split into fragments
+
+the input text is a single string. The script-generator understands how to split the text into a series of fragments. Each fragment uses a single voice. For example in a conversation each sentence will be a a different fragment, because each sentence is spoken by a different person.
+
+This task is performed by an LLM, using OpenAI endpoints.
+
+## verification
+
+the generated script is checked for completeness.
+
+## instructions for voices
+
+each fragment might require a specific intonation to convey the correct emotion. This is done by using the "instructions" field to describe the emotion of the character that is speaking (if required). 
+
+# text-to-voice
+
+## input data
+
+the input/scripts folder contains a json with the following structure
+
+the JSON is described in the script-generation feature
+
+
 ## output data
 
-the `output\audio` folder will hold the generated audio files. Each fragment in the input JSON will have a corresponding audio file. The filenames of the generated audiofiles will have this format `fragment_000.wav`, composed of the `fragment_` prefix and the index of the fragment in the array of fragments. Fragments will be created following the order of the array in the input JSON.
+the `output\fragments` folder will hold the generated audio files. Each fragment in the input JSON will have a corresponding audio file. The filenames of the generated audiofiles will have this format `fragment_000.wav`, composed of the `fragment_` prefix and the index of the fragment in the array of fragments. Fragments will be created following the order of the array in the input JSON.
 
 ## automatic splitting of long fragments
 
@@ -63,8 +92,33 @@ if a fragment produced an error, it will be printed in the console log, and the 
 
 A list of fragments that could not be transformed in audio files will be generated and will be put in the `output` folder in a file called `errors.json`.
 
+## avoid processing fragments twice
+
+if the audio file of a fragment is already present in the output folder, skip it
+
 ## log
 
 the script will generate a log of operations and will be written in the `output` folder in a file called `log.json`
 
+# audio-merge
+
+## main purpose of this functionality
+
+the `output\fragments` folder contains a list of audio files that follow this format `fragment_xxx.wav` or `fragment_xxx_yyy.wav`. The goal is to merge all the fragments into a single output audio. The fragments are aggregated keeping the order indicated by the file name. Only fragment audio files are aggregated (file name starts with `fragment_`). The generated audio is created in the `output/mixdown` folder with the name `mixdown.wav`.
+
+## normalisation
+
+the output audio file is ormalised at -3 Db.
+
+## padding
+
+the output audio file has a few seconds of silence at the beginning and at the end
+
+## logging
+
+the file appends logs to the logfile
+
+## error handling
+
+if an error occours, it's printed to the console.
 
