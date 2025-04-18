@@ -1,0 +1,70 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Features list
+
+## input data
+
+the input/scripts folder contains a json with the following structure
+
+```
+{
+    "voices": [
+        "voice_name": {
+            "voice": "name of the openai voice",
+            "instructions": "instructions for the openai TTS endpoint"
+        }
+    ],
+    "fragments": [
+        {
+            "voice_name": "voice",
+            "text": "text",
+            "instructions": "optional additional instructions for the voice endpoint"
+        }
+    ]
+}
+```
+
+the input script can have one or more voices, and one or more fragments. 
+
+Each voice has default instructions, that 
+
+Examples of voices are:
+- narrator
+- protagonist
+- antagonist
+
+Each fragment can contain instructions that, if present, will replace the default instructions.
+
+The main purpose of this project is to automatically produce audiofles for each fragment, calling OpenAI TTS endpoints. 
+
+## output data
+
+the `output\audio` folder will hold the generated audio files. Each fragment in the input JSON will have a corresponding audio file. The filenames of the generated audiofiles will have this format `fragment_000.wav`, composed of the `fragment_` prefix and the index of the fragment in the array of fragments. Fragments will be created following the order of the array in the input JSON.
+
+## automatic splitting of long fragments
+
+the length of fragments is checked, and if a fragment is too long it will be split in multiple fragments, each of a length less than the maximum allowed by OpenAI TTS endpoints. The generated audiofiles will have this format `fragment_xxx_yyy.wav` where `xxx` is the index of the fragment, and `yyy` is the index within the splits of the fragments.
+
+## rate limits
+
+OpenAI imposes rate limmits that will be respected by slowing down the execution, if necessary
+
+## parallel execution
+
+the script work in a single thread, to make it easier to check rate limit and check progress
+
+## error handling
+
+if a fragment produced an error, it will be printed in the console log, and the generation will be attempted again, to a maximum of 3 attempts. 
+
+A list of fragments that could not be transformed in audio files will be generated and will be put in the `output` folder in a file called `errors.json`.
+
+## log
+
+the script will generate a log of operations and will be written in the `output` folder in a file called `log.json`
+
+
