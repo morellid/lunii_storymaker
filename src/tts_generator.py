@@ -70,6 +70,12 @@ def split_long_text(text: str, max_length: int = MAX_CHARS_PER_REQUEST) -> List[
     
     return chunks
 
+def save_log(log_file: List[dict]) -> None:
+    """Save the log file to disk with proper UTF-8 character escaping."""
+    with open(OUTPUT_DIR / "log.json", 'w', encoding='utf-8') as f:
+        # Use ensure_ascii=False to preserve Unicode characters
+        json.dump(log_file, f, indent=2, ensure_ascii=False)
+
 def generate_audio(
     text: str,
     voice: str,
@@ -80,10 +86,25 @@ def generate_audio(
     """Generate audio file using OpenAI's TTS API with retry logic."""
     for attempt in range(MAX_RETRIES):
         try:
+            # Log the prompt being sent to the TTS endpoint
+            log_file.append({
+                "status": "prompt",
+                "file": str(output_path),
+                "attempt": attempt + 1,
+                "prompt": {
+                    "text": text,
+                    "voice": voice,
+                    "instructions": instructions
+                },
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+            })
+            save_log(log_file)
+            
             response = openai.audio.speech.create(
-                model="tts-1",
+                model="gpt-4o-mini-tts",
                 voice=voice,
-                input=text
+                input=text,
+                instructions=instructions
             )
             
             # Save the audio file
@@ -96,6 +117,7 @@ def generate_audio(
                 "attempt": attempt + 1,
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
             })
+            save_log(log_file)
             
             return True
             
@@ -107,6 +129,7 @@ def generate_audio(
                 "error": str(e),
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
             })
+            save_log(log_file)
             
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RATE_LIMIT_DELAY * (attempt + 1))  # Exponential backoff
@@ -148,6 +171,7 @@ def process_script(script_path: Path) -> None:
                     "reason": "file already exists",
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
                 })
+                save_log(log_file)
                 continue
             
             # Generate audio with rate limiting
@@ -167,11 +191,12 @@ def process_script(script_path: Path) -> None:
                     "text": chunk,
                     "voice": voice_name
                 })
+                # Save errors file after each error
+                with open(OUTPUT_DIR / "errors.json", 'w', encoding='utf-8') as f:
+                    json.dump(errors, f, indent=2)
     
-    # Save log and errors
-    with open(OUTPUT_DIR / "log.json", 'w', encoding='utf-8') as f:
-        json.dump(log_file, f, indent=2)
-    
+    # Final save of log and errors (in case there were any changes after the last save)
+    save_log(log_file)
     if errors:
         with open(OUTPUT_DIR / "errors.json", 'w', encoding='utf-8') as f:
             json.dump(errors, f, indent=2)

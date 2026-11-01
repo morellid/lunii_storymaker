@@ -1,6 +1,10 @@
 # Lunii Story Maker - Script Generation
 
-This tool helps transform text stories into structured scripts that can be used for text-to-voice generation.
+This tool helps transform text stories into audio. It does this by:
+
+1. transforming an unstructured text into a  structured script that specifies fragments of text and the voice (with the right intonation) that can be used for text-to-voice generation.
+2. calling OpenAI TTS endpoints to obtain the audio fragments
+3. merging to gether the fragments into a single audio file.
 
 ## Features
 

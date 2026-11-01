@@ -64,11 +64,14 @@ class AudioMixer:
             # Start with silence for padding
             mixdown = AudioSegment.silent(duration=int(padding_seconds * 1000))
             
-            # Concatenate all fragments
-            for file in fragment_files:
+            # Concatenate all fragments with 1 second of silence between them
+            for i, file in enumerate(fragment_files):
                 try:
                     segment = self._read_audio_file(file)
                     mixdown += segment
+                    # Add 1 second of silence after each fragment except the last one
+                    if i < len(fragment_files) - 1:
+                        mixdown += AudioSegment.silent(duration=1000)  # 1000ms = 1 second
                 except Exception as e:
                     print(f"Error processing {file}: {e}")
                     raise

@@ -14,6 +14,52 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+voices = """"
+# female narrator
+
+voice: alloy
+
+instructions
+
+Affect: Una narratrice gentile e curiosa madrelingua italiana, che guida un’avventura magica e adatta ai bambini attraverso un mondo da fiaba. Tono: Magico, caloroso e accogliente, capace di creare un senso di meraviglia e di entusiasmo per i piccoli ascoltatori. Ritmo: Costante e misurato, con leggere pause per enfatizzare i momenti magici e mantenere il flusso del racconto.
+
+# male narrator
+
+voice: ash
+
+instructions
+
+Affect: Un narratore gentile e curioso madrelingua italiana, che guida un’avventura magica e adatta ai bambini attraverso un mondo da fiaba. Tono: Magico, caloroso e accogliente, capace di creare un senso di meraviglia e di entusiasmo per i piccoli ascoltatori. Ritmo: Costante e misurato, con leggere pause per enfatizzare i momenti magici e mantenere il flusso del racconto.
+
+
+# young girl 1
+
+voice: nova
+
+instructions
+
+Affect: Una ragazza di 10 anni, curiosa e affascinata dalle storie, che si immerge in un mondo magico e avventuroso. Tono: Curiosa e affascinata, capace di creare un senso di meraviglia e di entusiasmo per i piccoli ascoltatori. Ritmo: Costante e misurato, con leggere pause per enfatizzare i momenti magici e mantenere il flusso del racconto.
+
+
+# female antagonist
+
+voice: coral
+
+instructions
+
+Affect: Una voce femminile antagonista, che incarna il classico ruolo della cattiva delle favole, con un tono minaccioso e spaventoso. Tono: Autoritario e drammatico, con un sottofondo di malizia teatrale tipico delle antagoniste delle storie per bambini. Voce profonda e grave. Ritmo: Enfatico, con pause strategiche per creare suspense e drammaticità.
+
+
+# male antagonist
+
+voice: echo
+
+instructions
+
+Affect: Un antagonista maschile, che incarna il classico ruolo della cattiva delle favole, con un tono minaccioso e spaventoso. Tono: Autoritario e drammatico, con un sottofondo di malizia teatrale tipico delle antagoniste delle storie per bambini. Voce profonda e grave. Ritmo: Enfatico, con pause strategiche per creare suspense e drammaticità.
+
+"""
+
 @dataclass
 class Voice:
     """Represents a voice configuration."""
@@ -78,6 +124,12 @@ class ScriptGenerator:
         For each fragment:
         - Assign the appropriate voice
         - Include specific instructions only if they differ from the voice's default
+
+        use the following voices as a guideline:
+        {voices}
+
+        write the script in italian, including instructions for the TTS endpoint.
+
         """
         
         user_prompt = f"""Analyze this text and create a script structure:
@@ -102,7 +154,7 @@ Respond with a JSON object that follows this exact schema:
 }}"""
 
         response = self.client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1",
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
