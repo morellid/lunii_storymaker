@@ -397,3 +397,21 @@ def test_home_on_a_fork_card_goes_to_the_cover(tmp_path: Path) -> None:
     assert len(cards) == 2
     for card in cards:
         assert actions[card["homeTransition"]["actionNode"]] == [story["stageNodes"][0]["uuid"]]
+
+
+class QuietVoiceSource(FakeSource):
+    """One voice comes back from the API 12 dB quieter than the other, as Kina does next to Lance Blackwood."""
+
+    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0, language: str = "it") -> bytes:
+        super().dialogue(lines, take, language)
+        volume = -32 if lines[0][0] == "v-nina" else -20
+        return to_mp3(Sine(220).to_audio_segment(duration=800, volume=volume))
+
+
+def test_a_quiet_voice_is_brought_close_to_the_others() -> None:
+    cues = [{"voice": "narratore", "text": "Ciao"}, {"pause": 1}, {"voice": "nina", "text": "Ciao"}]
+    script = parse_script(script_data(scenes=[{"cues": cues}]))
+    track = render_scene(script.scenes[0], script.voices, QuietVoiceSource())
+    loud, quiet = track[:800], track[-800:]
+    assert loud.dBFS - quiet.dBFS < 4  # was 12; a little difference is left, so a whisper stays a whisper
+    assert loud.dBFS - quiet.dBFS > 1

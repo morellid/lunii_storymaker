@@ -12,6 +12,11 @@ GAP_MS = 350  # breath between consecutive segments
 SCENE_GAP_MS = 800
 AMBIENCE_LEAD_MS = 1500  # ambience starts before the first word and lingers after the last
 AMBIENCE_LOOP_SECONDS = 30.0
+# Light compression first: a voice with strong peaks (laughs, sibilants) could otherwise only be raised until a peak
+# clips, so a quiet voice stayed quiet.
+COMPRESSION = {"threshold": -24.0, "ratio": 4.0, "attack": 5.0, "release": 80.0}
+DIALOGUE_LEVELLING = 0.75  # each dialogue request moves this far toward the scene's average: voices come back from
+# the API at very different levels (Kina ~7 dB under Lance Blackwood), and the rest of the gap keeps a whisper softer
 SFX_DB = -3.0  # effects sit slightly under the dialogue level, so nothing startles at bedtime
 PEAK_CEILING_DB = -1.0  # levelling never pushes a peak past this, so quiet transients aren't boosted into clipping
 LOOP_CROSSFADE_MS = 50  # hides the MP3 padding at each ambience loop seam
@@ -67,6 +72,7 @@ def render_scene(scene: Scene, voices: dict[str, str], source: AudioSource) -> A
         if isinstance(segment, tuple):
             take = max(line.take for line in segment)
             audio = _decode(source.dialogue([(voices[line.voice], line.text) for line in segment], take, segment[0].lang))
+            audio = effects.compress_dynamic_range(audio, **COMPRESSION)
         elif isinstance(segment, Sfx):
             audio = _decode(source.sound(segment.prompt, segment.duration, take=segment.take))
         else:
@@ -80,6 +86,8 @@ def render_scene(scene: Scene, voices: dict[str, str], source: AudioSource) -> A
     for segment, audio in parts:
         if isinstance(segment, Sfx):
             audio = _level(audio, reference_db + SFX_DB)
+        elif isinstance(segment, tuple):
+            audio = _level(audio, audio.dBFS + DIALOGUE_LEVELLING * (reference_db - audio.dBFS))
         if len(track):
             track += AudioSegment.silent(GAP_MS)
         track += audio
