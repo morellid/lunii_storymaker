@@ -9,7 +9,7 @@ from typing import Sequence
 from dotenv import load_dotenv
 
 from storymaker.elevenlabs import ElevenLabs
-from storymaker.pack import Menu, MenuOption, cover_png, write_pack
+from storymaker.pack import Menu, MenuOption, cover_png, icon_png, write_pack
 from storymaker.render import AMBIENCE_LOOP_SECONDS, AudioSource, group_lines, render_scenes, render_spoken, to_mp3
 from storymaker.script import Scene, Script, ScriptError, Sfx, load_script
 
@@ -56,6 +56,9 @@ def build_pack(script: Script, script_path: Path, client: AudioSource) -> Path:
     out_dir.mkdir(exist_ok=True)
     narrator = script.voices[script.narrator]
 
+    def card(title: str, image: str | None) -> bytes:
+        return icon_png(script_path.parent / image) if image else cover_png(title)
+
     def render(name: str, scenes: Sequence[Scene]) -> bytes:
         mp3 = to_mp3(render_scenes(scenes, script.voices, client))
         (out_dir / f"{name}.mp3").write_bytes(mp3)  # to listen to before uploading
@@ -66,14 +69,14 @@ def build_pack(script: Script, script_path: Path, client: AudioSource) -> Path:
         menu = Menu(
             to_mp3(render_spoken(script.choice.question, narrator, client)),
             tuple(
-                MenuOption(cover_png(option.title), to_mp3(render_spoken(option.title, narrator, client)), render(f"{i + 1}", option.scenes))
+                MenuOption(card(option.title, option.image), to_mp3(render_spoken(option.title, narrator, client)), render(f"{i + 1}", option.scenes))
                 for i, option in enumerate(script.choice.options)
             ),
         )
     story_mp3 = render("intro" if menu else "story", script.scenes)
     pack_path = out_dir / f"{slug}.zip"
     title_mp3 = to_mp3(render_spoken(script.title, narrator, client))
-    write_pack(pack_path, slug, script.title, script.description, cover_png(script.title), title_mp3, story_mp3, menu)
+    write_pack(pack_path, slug, script.title, script.description, card(script.title, script.image), title_mp3, story_mp3, menu)
     return pack_path
 
 

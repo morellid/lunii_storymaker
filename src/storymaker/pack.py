@@ -55,6 +55,21 @@ def cover_png(title: str) -> bytes:
     return buffer.getvalue()
 
 
+def icon_png(path: Path) -> bytes:
+    """A light icon centred on black: the Lunii screen is tiny, a silhouette reads where text doesn't."""
+    icon = Image.open(path)
+    if icon.mode in ("RGBA", "LA", "P"):
+        icon = icon.convert("RGBA")
+        icon = Image.alpha_composite(Image.new("RGBA", icon.size, "black"), icon)
+    icon = icon.convert("L")
+    icon.thumbnail((COVER_SIZE[1] - 40, COVER_SIZE[1] - 40))
+    image = Image.new("L", COVER_SIZE, 0)
+    image.paste(icon, ((COVER_SIZE[0] - icon.width) // 2, (COVER_SIZE[1] - icon.height) // 2))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def write_pack(
     path: Path,
     slug: str,

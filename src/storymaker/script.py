@@ -52,6 +52,7 @@ class Scene:
 class Option:
     title: str
     scenes: tuple[Scene, ...]
+    image: str | None = None  # icon path relative to script.json; without it the card shows the title
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class Script:
     voices: dict[str, str]  # voice name -> ElevenLabs voice_id
     scenes: tuple[Scene, ...]  # the whole story, or the introduction when there is a choice
     choice: Choice | None = None
+    image: str | None = None  # cover icon, as Option.image
 
 
 def load_script(path: Path) -> Script:
@@ -88,7 +90,14 @@ def parse_script(data: dict[str, Any]) -> Script:
         raise ScriptError(f"narrator {narrator!r} is not in 'voices'")
     scenes = _parse_scenes(data.get("scenes"), "scenes", voices)
     choice = _parse_choice(data["choice"], voices) if "choice" in data else None
-    return Script(title, str(data.get("description", "")), narrator, dict(voices), scenes, choice)
+    return Script(title, str(data.get("description", "")), narrator, dict(voices), scenes, choice, _image(data, "image"))
+
+
+def _image(raw: dict[str, Any], where: str) -> str | None:
+    image = raw.get("image")
+    if image is not None and (not isinstance(image, str) or not image.strip()):
+        raise ScriptError(f"{where} must be a path to an image file")
+    return image
 
 
 def _parse_choice(raw: dict[str, Any], voices: dict[str, str]) -> Choice:
@@ -100,7 +109,8 @@ def _parse_choice(raw: dict[str, Any], voices: dict[str, str]) -> Choice:
         title = str(option.get("title", "")).strip()
         if not title:
             raise ScriptError(f"choice.options[{i}] needs a 'title'")
-        options.append(Option(title, _parse_scenes(option.get("scenes"), f"choice.options[{i}].scenes", voices)))
+        scenes = _parse_scenes(option.get("scenes"), f"choice.options[{i}].scenes", voices)
+        options.append(Option(title, scenes, _image(option, f"choice.options[{i}].image")))
     if len(options) < 2:
         raise ScriptError("choice needs at least 2 options")
     return Choice(question, tuple(options))

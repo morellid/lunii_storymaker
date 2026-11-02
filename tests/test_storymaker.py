@@ -223,6 +223,37 @@ def test_build_pack_with_choice_writes_zip_and_branch_mp3s(tmp_path: Path) -> No
     assert {p.name for p in pack.parent.glob("*.mp3")} == {"intro.mp3", "1.mp3", "2.mp3"}
 
 
+def test_build_pack_uses_icons_instead_of_text_cards(tmp_path: Path) -> None:
+    from PIL import Image
+
+    script_path = tmp_path / "tracce" / "script.json"
+    script_path.parent.mkdir()
+    Image.new("L", (100, 100), 255).save(script_path.parent / "icon.png")
+    data = menu_data()
+    data["image"] = "icon.png"
+    for option in data["choice"]["options"]:
+        option["image"] = "icon.png"
+    pack = build_pack(parse_script(data), script_path, FakeSource())
+
+    story, stages, _, _ = read_pack(pack)
+    with zipfile.ZipFile(pack) as archive:
+        cards = [archive.read("thumbnail.png")] + [
+            archive.read(f"assets/{node['image']}") for node in stages.values() if node["type"] in ("cover", "menu.optionstage")
+        ]
+    assert len(cards) == 4
+    for card in cards:
+        image = Image.open(io.BytesIO(card)).convert("L")
+        assert image.size == (320, 240)
+        assert image.getpixel((5, 5)) == 0 and image.getpixel((160, 120)) == 255
+
+
+def test_parse_rejects_missing_image_path() -> None:
+    data = menu_data()
+    data["image"] = 3
+    with pytest.raises(ScriptError, match="image"):
+        parse_script(data)
+
+
 def test_cover_is_lunii_screen_size() -> None:
     from PIL import Image
 

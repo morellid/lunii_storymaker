@@ -60,6 +60,7 @@ Every API response is cached in `~/.cache/lunii-storymaker`, keyed by request. E
   ```json
   "choice": {"question": "Quale traccia vuoi toccare?", "options": [{"title": "La pista nella sabbia", "scenes": [...]}, {"title": "L'orma nel fango", "scenes": [...]}]}
   ```
+- `image` (optional, on the script and on each option): a path, relative to `script.json`, to a light icon on a dark or transparent background. It is centred on black and shown instead of the title, which is hard to read on the Lunii screen. Simple filled silhouettes work best, e.g. [game-icons](https://game-icons.net) via `https://api.iconify.design/game-icons/<name>.svg`.
 - `ambience` (optional) is a 30-second loop generated once per scene and repeated under it, `volume_db` below the scene's level (default -20).
 
 ## Tests
