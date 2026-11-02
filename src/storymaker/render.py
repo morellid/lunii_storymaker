@@ -19,6 +19,8 @@ DIALOGUE_LEVELLING = 0.75  # each dialogue request moves this far toward the sce
 # the API at very different levels (Kina ~7 dB under Lance Blackwood), and the rest of the gap keeps a whisper softer
 SFX_DB = -3.0  # effects sit slightly under the dialogue level, so nothing startles at bedtime
 PEAK_CEILING_DB = -1.0  # levelling never pushes a peak past this, so quiet transients aren't boosted into clipping
+LOUDNESS_LUFS = -16.0  # every file in the pack, as loud as the audiobooks already on Anna's Lunii (-15.9)
+TRUE_PEAK_DB = -1.5
 LOOP_CROSSFADE_MS = 50  # hides the MP3 padding at each ambience loop seam
 
 
@@ -105,8 +107,10 @@ def render_scene(scene: Scene, voices: dict[str, str], source: AudioSource) -> A
 
 
 def to_mp3(audio: AudioSegment) -> bytes:
+    """The pack's MP3: normalised to LOUDNESS_LUFS, so every part, branch and title plays at the same volume."""
     buffer = io.BytesIO()
-    audio.export(buffer, format="mp3", bitrate="128k")
+    loudnorm = f"loudnorm=I={LOUDNESS_LUFS}:TP={TRUE_PEAK_DB}:LRA=11"
+    audio.export(buffer, format="mp3", bitrate="128k", parameters=["-af", loudnorm, "-ar", "44100", "-ac", "1"])
     return buffer.getvalue()
 
 
@@ -121,5 +125,5 @@ def _level(audio: AudioSegment, target_db: float) -> AudioSegment:
 
 
 def _finish(audio: AudioSegment) -> AudioSegment:
-    # Mono 44.1 kHz MP3 is what the Lunii plays; Lunii.QT then imports it without transcoding.
-    return effects.normalize(audio.set_channels(1).set_frame_rate(44100), headroom=1.0)
+    # Mono 44.1 kHz MP3 is what the Lunii plays; Lunii.QT then imports it without transcoding. Loudness is set in to_mp3.
+    return audio.set_channels(1).set_frame_rate(44100)

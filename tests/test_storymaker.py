@@ -37,6 +37,13 @@ def script_data(**overrides: Any) -> dict[str, Any]:
     return data
 
 
+def raw_mp3(audio: AudioSegment) -> bytes:
+    """What the API returns: an MP3 at whatever level, not normalised like the pack's."""
+    buffer = io.BytesIO()
+    audio.export(buffer, format="mp3")
+    return buffer.getvalue()
+
+
 class FakeSource:
     """Stands in for ElevenLabs: tones instead of speech, records every request."""
 
@@ -51,11 +58,11 @@ class FakeSource:
         self.dialogue_calls.append(list(lines))
         self.takes.append(take)
         self.languages.append(language)
-        return to_mp3(Sine(220).to_audio_segment(duration=800, volume=-20))
+        return raw_mp3(Sine(220).to_audio_segment(duration=800, volume=-20))
 
     def sound(self, prompt: str, duration: float | None, loop: bool = False, take: int = 0) -> bytes:
         self.sound_calls.append((prompt, duration, loop))
-        return to_mp3(Sine(880).to_audio_segment(duration=int((duration or 1) * 1000), volume=self.sfx_volume_db))
+        return raw_mp3(Sine(880).to_audio_segment(duration=int((duration or 1) * 1000), volume=self.sfx_volume_db))
 
 
 def test_parse_valid_script() -> None:
@@ -115,7 +122,7 @@ class QuietBellSource(FakeSource):
     def sound(self, prompt: str, duration: float | None, loop: bool = False, take: int = 0) -> bytes:
         self.sound_calls.append((prompt, duration, loop))
         strike = Sine(880).to_audio_segment(duration=50, volume=-3)
-        return to_mp3(strike + AudioSegment.silent(2450))
+        return raw_mp3(strike + AudioSegment.silent(2450))
 
 
 def test_quiet_sfx_is_not_boosted_into_clipping() -> None:
@@ -405,7 +412,7 @@ class QuietVoiceSource(FakeSource):
     def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0, language: str = "it") -> bytes:
         super().dialogue(lines, take, language)
         volume = -32 if lines[0][0] == "v-nina" else -20
-        return to_mp3(Sine(220).to_audio_segment(duration=800, volume=volume))
+        return raw_mp3(Sine(220).to_audio_segment(duration=800, volume=volume))
 
 
 def test_a_quiet_voice_is_brought_close_to_the_others() -> None:
@@ -415,3 +422,17 @@ def test_a_quiet_voice_is_brought_close_to_the_others() -> None:
     loud, quiet = track[:800], track[-800:]
     assert loud.dBFS - quiet.dBFS < 4  # was 12; a little difference is left, so a whisper stays a whisper
     assert loud.dBFS - quiet.dBFS > 1
+
+
+def test_every_mp3_comes_out_at_the_same_loudness() -> None:
+    quiet = Sine(1000).to_audio_segment(duration=5000, volume=-35)
+    loud = Sine(1000).to_audio_segment(duration=5000, volume=-6)
+    levels = [AudioSegment.from_file(io.BytesIO(to_mp3(audio)), format="mp3").dBFS for audio in (quiet, loud)]
+    for level in levels:  # a steady 1 kHz tone reads about the same in dBFS and LUFS
+        assert abs(level - loudness_target()) < 2.5
+
+
+def loudness_target() -> float:
+    from storymaker.render import LOUDNESS_LUFS
+
+    return LOUDNESS_LUFS
