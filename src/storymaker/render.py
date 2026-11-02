@@ -6,7 +6,7 @@ from typing import Protocol, Sequence
 
 from pydub import AudioSegment, effects
 
-from storymaker.script import MAX_DIALOGUE_CHARS, Cue, Line, Pause, Scene, Script, Sfx
+from storymaker.script import MAX_DIALOGUE_CHARS, Cue, Line, Pause, Scene, Sfx
 
 GAP_MS = 350  # breath between consecutive segments
 SCENE_GAP_MS = 800
@@ -46,16 +46,17 @@ def group_lines(cues: Sequence[Cue]) -> list[Segment]:
     return segments
 
 
-def render_title(script: Script, source: AudioSource) -> AudioSegment:
-    return _finish(_decode(source.dialogue([(script.voices[script.narrator], script.title)])))
+def render_spoken(text: str, voice_id: str, source: AudioSource) -> AudioSegment:
+    """A single announcement: a title, or the question before a choice."""
+    return _finish(_decode(source.dialogue([(voice_id, text)])))
 
 
-def render_story(script: Script, source: AudioSource) -> AudioSegment:
+def render_scenes(scenes: Sequence[Scene], voices: dict[str, str], source: AudioSource) -> AudioSegment:
     story = AudioSegment.silent(0)
-    for scene in script.scenes:
+    for scene in scenes:
         if len(story):
             story += AudioSegment.silent(SCENE_GAP_MS)
-        story += render_scene(scene, script.voices, source)
+        story += render_scene(scene, voices, source)
     return _finish(story)
 
 

@@ -4,13 +4,14 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Sequence
 
 from dotenv import load_dotenv
 
 from storymaker.elevenlabs import ElevenLabs
-from storymaker.pack import cover_png, write_pack
-from storymaker.render import AMBIENCE_LOOP_SECONDS, group_lines, render_story, render_title, to_mp3
-from storymaker.script import Script, ScriptError, Sfx, load_script
+from storymaker.pack import Menu, MenuOption, cover_png, write_pack
+from storymaker.render import AMBIENCE_LOOP_SECONDS, AudioSource, group_lines, render_scenes, render_spoken, to_mp3
+from storymaker.script import Scene, Script, ScriptError, Sfx, load_script
 
 CACHE_DIR = Path.home() / ".cache" / "lunii-storymaker"
 # Rough third-party figures (Nov 2026). ElevenLabs bills in plan credits, so the real cost depends on the plan.
@@ -49,21 +50,41 @@ def main(argv: list[str] | None = None) -> None:
         print(_client().add_voice(args.public_owner_id, args.voice_id, args.name))
 
 
-def build_pack(script: Script, script_path: Path, client: ElevenLabs) -> Path:
+def build_pack(script: Script, script_path: Path, client: AudioSource) -> Path:
     slug = script_path.resolve().parent.name
     out_dir = script_path.parent / "build"
-    story_mp3 = to_mp3(render_story(script, client))
     out_dir.mkdir(exist_ok=True)
-    (out_dir / "story.mp3").write_bytes(story_mp3)  # to listen to before uploading
+    narrator = script.voices[script.narrator]
+
+    def render(name: str, scenes: Sequence[Scene]) -> bytes:
+        mp3 = to_mp3(render_scenes(scenes, script.voices, client))
+        (out_dir / f"{name}.mp3").write_bytes(mp3)  # to listen to before uploading
+        return mp3
+
+    menu = None
+    if script.choice:
+        menu = Menu(
+            to_mp3(render_spoken(script.choice.question, narrator, client)),
+            tuple(
+                MenuOption(cover_png(option.title), to_mp3(render_spoken(option.title, narrator, client)), render(f"{i + 1}", option.scenes))
+                for i, option in enumerate(script.choice.options)
+            ),
+        )
+    story_mp3 = render("intro" if menu else "story", script.scenes)
     pack_path = out_dir / f"{slug}.zip"
-    write_pack(pack_path, slug, script.title, script.description, cover_png(script.title), to_mp3(render_title(script, client)), story_mp3)
+    title_mp3 = to_mp3(render_spoken(script.title, narrator, client))
+    write_pack(pack_path, slug, script.title, script.description, cover_png(script.title), title_mp3, story_mp3, menu)
     return pack_path
 
 
 def estimate(script: Script) -> str:
+    scenes = list(script.scenes)
     chars = len(script.title)
+    if script.choice:
+        chars += len(script.choice.question) + sum(len(option.title) for option in script.choice.options)
+        scenes += [scene for option in script.choice.options for scene in option.scenes]
     sfx_seconds = 0.0
-    for scene in script.scenes:
+    for scene in scenes:
         for segment in group_lines(scene.cues):
             if isinstance(segment, tuple):
                 chars += sum(len(line.text) for line in segment)

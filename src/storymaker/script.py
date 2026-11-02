@@ -49,12 +49,25 @@ class Scene:
 
 
 @dataclass(frozen=True)
+class Option:
+    title: str
+    scenes: tuple[Scene, ...]
+
+
+@dataclass(frozen=True)
+class Choice:
+    question: str  # read by the narrator, then the wheel picks an option
+    options: tuple[Option, ...]
+
+
+@dataclass(frozen=True)
 class Script:
     title: str
     description: str
-    narrator: str  # voice name that reads the title on the Lunii menu
+    narrator: str  # voice name that reads the titles and the question
     voices: dict[str, str]  # voice name -> ElevenLabs voice_id
-    scenes: tuple[Scene, ...]
+    scenes: tuple[Scene, ...]  # the whole story, or the introduction when there is a choice
+    choice: Choice | None = None
 
 
 def load_script(path: Path) -> Script:
@@ -73,10 +86,31 @@ def parse_script(data: dict[str, Any]) -> Script:
     narrator = data.get("narrator")
     if narrator not in voices:
         raise ScriptError(f"narrator {narrator!r} is not in 'voices'")
-    scenes = tuple(_parse_scene(raw, f"scenes[{i}]", voices) for i, raw in enumerate(data.get("scenes") or []))
+    scenes = _parse_scenes(data.get("scenes"), "scenes", voices)
+    choice = _parse_choice(data["choice"], voices) if "choice" in data else None
+    return Script(title, str(data.get("description", "")), narrator, dict(voices), scenes, choice)
+
+
+def _parse_choice(raw: dict[str, Any], voices: dict[str, str]) -> Choice:
+    question = str(raw.get("question", "")).strip()
+    if not question:
+        raise ScriptError("choice needs a 'question'")
+    options = []
+    for i, option in enumerate(raw.get("options") or []):
+        title = str(option.get("title", "")).strip()
+        if not title:
+            raise ScriptError(f"choice.options[{i}] needs a 'title'")
+        options.append(Option(title, _parse_scenes(option.get("scenes"), f"choice.options[{i}].scenes", voices)))
+    if len(options) < 2:
+        raise ScriptError("choice needs at least 2 options")
+    return Choice(question, tuple(options))
+
+
+def _parse_scenes(raw: list[dict[str, Any]] | None, where: str, voices: dict[str, str]) -> tuple[Scene, ...]:
+    scenes = tuple(_parse_scene(scene, f"{where}[{i}]", voices) for i, scene in enumerate(raw or []))
     if not scenes:
-        raise ScriptError("'scenes' is empty")
-    return Script(title, str(data.get("description", "")), narrator, dict(voices), scenes)
+        raise ScriptError(f"'{where}' is empty")
+    return scenes
 
 
 def _parse_scene(raw: dict[str, Any], where: str, voices: dict[str, str]) -> Scene:

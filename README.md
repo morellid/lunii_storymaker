@@ -55,6 +55,11 @@ Every API response is cached in `~/.cache/lunii-storymaker`, keyed by request. E
   - `pause`: silence, in seconds.
   - Lines and effects take an optional `take` (integer, default 0). The cache returns the same audio for the same request, so bump `take` to get a new rendition of unchanged text.
 - Consecutive lines are sent as one dialogue request, so the voices react to each other. A sound effect or a pause starts a new request, as does reaching 2,000 characters (the API limit).
+- `choice` (optional) turns the pack into a menu: `scenes` becomes the introduction, then the narrator asks `question` and the Lunii wheel picks one of `options` (`{"title": ..., "scenes": [...]}`, at least 2). Each option shows a card with its title; its story ends back at the question so another can be picked.
+
+  ```json
+  "choice": {"question": "Quale traccia vuoi toccare?", "options": [{"title": "La pista nella sabbia", "scenes": [...]}, {"title": "L'orma nel fango", "scenes": [...]}]}
+  ```
 - `ambience` (optional) is a 30-second loop generated once per scene and repeated under it, `volume_db` below the scene's level (default -20).
 
 ## Tests

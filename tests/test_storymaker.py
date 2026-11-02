@@ -8,9 +8,9 @@ import pytest
 from pydub import AudioSegment
 from pydub.generators import Sine
 
-from storymaker.cli import main
-from storymaker.pack import cover_png, pack_uuid, write_pack
-from storymaker.render import group_lines, render_scene, render_story, to_mp3
+from storymaker.cli import build_pack, main
+from storymaker.pack import Menu, MenuOption, cover_png, pack_uuid, write_pack
+from storymaker.render import group_lines, render_scene, render_scenes, to_mp3
 from storymaker.script import Line, Pause, ScriptError, Sfx, parse_script
 
 
@@ -139,33 +139,88 @@ def test_parse_rejects_bad_numbers(cue: dict[str, Any]) -> None:
         parse_script(script_data(scenes=[{"cues": [cue]}]))
 
 
-def test_render_story_is_mono_44k() -> None:
-    story = render_story(parse_script(script_data()), FakeSource())
+def test_render_scenes_is_mono_44k() -> None:
+    script = parse_script(script_data())
+    story = render_scenes(script.scenes, script.voices, FakeSource())
     assert (story.channels, story.frame_rate) == (1, 44100)
 
 
-def test_pack_matches_what_lunii_qt_expects(tmp_path: Path) -> None:
-    path = tmp_path / "faro.zip"
-    title_mp3 = to_mp3(AudioSegment.silent(500))
-    story_mp3 = to_mp3(Sine(440).to_audio_segment(duration=500))
-    write_pack(path, "faro", "Il faro", "", cover_png("Il faro"), title_mp3, story_mp3)
+def menu_data() -> dict[str, Any]:
+    branch = [{"cues": [{"voice": "nina", "text": "Eccomi!"}]}]
+    return script_data(
+        choice={"question": "Quale traccia vuoi toccare?", "options": [{"title": "La pista", "scenes": branch}, {"title": "L'orma", "scenes": branch}]}
+    )
 
+
+def test_parse_choice() -> None:
+    script = parse_script(menu_data())
+    assert script.choice is not None
+    assert [option.title for option in script.choice.options] == ["La pista", "L'orma"]
+
+
+def test_parse_rejects_choice_with_one_option() -> None:
+    data = menu_data()
+    data["choice"]["options"] = data["choice"]["options"][:1]
+    with pytest.raises(ScriptError, match="at least 2"):
+        parse_script(data)
+
+
+def read_pack(path: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, list[str]], set[str]]:
     with zipfile.ZipFile(path) as archive:
         story = json.loads(archive.read("story.json"))
         names = set(archive.namelist())
-    stage_ids = {node["uuid"] for node in story["stageNodes"]}
-    action_ids = {node["id"] for node in story["actionNodes"]}
-
-    assert story["stageNodes"][0]["type"] == "cover"
-    assert story["stageNodes"][0]["uuid"] == str(pack_uuid("faro"))
-    for node in story["stageNodes"]:
+    stages = {node["uuid"]: node for node in story["stageNodes"]}
+    actions = {node["id"]: node["options"] for node in story["actionNodes"]}
+    for node in stages.values():
         for transition in (node["okTransition"], node["homeTransition"]):
-            assert transition is None or transition["actionNode"] in action_ids
+            assert transition is None or set(actions[transition["actionNode"]]) <= set(stages)
         for asset in (node["image"], node["audio"]):
             assert asset is None or f"assets/{asset}" in names
-    for node in story["actionNodes"]:
-        assert set(node["options"]) <= stage_ids
+    return story, stages, actions, names
+
+
+def next_stages(node: dict[str, Any], actions: dict[str, list[str]]) -> list[str]:
+    return actions[node["okTransition"]["actionNode"]]
+
+
+def tone(hz: int) -> bytes:
+    return to_mp3(Sine(hz).to_audio_segment(duration=300))
+
+
+def test_single_story_pack_goes_cover_story_cover(tmp_path: Path) -> None:
+    path = tmp_path / "faro.zip"
+    write_pack(path, "faro", "Il faro", "", cover_png("Il faro"), tone(300), tone(400))
+    story, stages, actions, names = read_pack(path)
+    cover = story["stageNodes"][0]
+    assert cover["type"] == "cover" and cover["uuid"] == str(pack_uuid("faro"))
+    [story_id] = next_stages(cover, actions)
+    assert next_stages(stages[story_id], actions) == [cover["uuid"]]
     assert "thumbnail.png" in names
+
+
+def test_menu_pack_returns_to_the_question_after_each_branch(tmp_path: Path) -> None:
+    path = tmp_path / "tracce.zip"
+    options = tuple(MenuOption(cover_png(f"Era {i}"), tone(500 + i), tone(600 + i)) for i in range(3))
+    write_pack(path, "tracce", "Le tracce", "", cover_png("Le tracce"), tone(300), tone(400), Menu(tone(450), options))
+    story, stages, actions, _ = read_pack(path)
+
+    [intro_id] = next_stages(story["stageNodes"][0], actions)
+    [question_id] = next_stages(stages[intro_id], actions)
+    option_ids = next_stages(stages[question_id], actions)
+    assert [stages[option_id]["type"] for option_id in option_ids] == ["menu.optionstage"] * 3
+    branches = [next_stages(stages[option_id], actions)[0] for option_id in option_ids]
+    assert len({stages[branch]["audio"] for branch in branches}) == 3
+    for branch in branches:
+        assert next_stages(stages[branch], actions) == [question_id]
+        assert stages[branch]["homeTransition"] == stages[branch]["okTransition"]
+
+
+def test_build_pack_with_choice_writes_zip_and_branch_mp3s(tmp_path: Path) -> None:
+    script_path = tmp_path / "tracce" / "script.json"
+    script_path.parent.mkdir()
+    pack = build_pack(parse_script(menu_data()), script_path, FakeSource())
+    assert pack == tmp_path / "tracce" / "build" / "tracce.zip"
+    assert {p.name for p in pack.parent.glob("*.mp3")} == {"intro.mp3", "1.mp3", "2.mp3"}
 
 
 def test_cover_is_lunii_screen_size() -> None:
