@@ -18,11 +18,11 @@ class ElevenLabs:
         self._http = httpx.Client(base_url=API_URL, headers={"xi-api-key": api_key}, timeout=300)
         self._cache_dir = cache_dir
 
-    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0) -> bytes:
+    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0, language: str = "it") -> bytes:
         """lines are (voice_id, text) pairs, spoken in order as one performance."""
         body: dict[str, Any] = {
             "model_id": TTS_MODEL,
-            "language_code": "it",
+            "language_code": language,
             "inputs": [{"voice_id": voice_id, "text": text} for voice_id, text in lines],
         }
         if take:
@@ -34,8 +34,8 @@ class ElevenLabs:
         body = {"model_id": SFX_MODEL, "text": prompt, "duration_seconds": duration, "loop": loop}
         return self._audio("/sound-generation", body, take)
 
-    def italian_voices(self, search: str | None, page_size: int = 30) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"language": "it", "page_size": page_size, "sort": "usage_character_count_1y"}
+    def library_voices(self, search: str | None, language: str = "it", page_size: int = 30) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"language": language, "page_size": page_size, "sort": "usage_character_count_1y"}
         if search:
             params["search"] = search
         response = self._http.get("/shared-voices", params=params)

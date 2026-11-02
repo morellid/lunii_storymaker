@@ -25,8 +25,9 @@ def main(argv: list[str] | None = None) -> None:
     build = commands.add_parser("build", help="render a script.json into <its folder>/build/<folder name>.zip")
     build.add_argument("script", type=Path)
     build.add_argument("--dry-run", action="store_true", help="validate and estimate cost, call nothing")
-    voices = commands.add_parser("voices", help="search Italian voices in the ElevenLabs library")
+    voices = commands.add_parser("voices", help="search voices in the ElevenLabs library (Italian by default)")
     voices.add_argument("--search")
+    voices.add_argument("--language", default="it", help="two-letter code, e.g. en for English-speaking characters")
     add_voice = commands.add_parser("add-voice", help="add a library voice to the account, print its voice_id")
     add_voice.add_argument("public_owner_id")
     add_voice.add_argument("voice_id")
@@ -42,7 +43,7 @@ def main(argv: list[str] | None = None) -> None:
         if not args.dry_run:
             print(f"Pack written to {build_pack(script, args.script, _client())}")
     elif args.command == "voices":
-        for voice in _client().italian_voices(args.search):
+        for voice in _client().library_voices(args.search, args.language):
             details = " ".join(str(voice.get(field) or "-") for field in ("accent", "locale", "gender", "age"))
             print(f"{voice['public_owner_id']} {voice['voice_id']}  {voice['name']} | {details} | {voice.get('preview_url')}")
             print(f"    {(voice.get('description') or '')[:160]}")

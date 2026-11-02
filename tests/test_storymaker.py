@@ -43,11 +43,13 @@ class FakeSource:
         self.dialogue_calls: list[list[tuple[str, str]]] = []
         self.sound_calls: list[tuple[str, float | None, bool]] = []
         self.takes: list[int] = []
+        self.languages: list[str] = []
         self.sfx_volume_db = sfx_volume_db
 
-    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0) -> bytes:
+    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0, language: str = "it") -> bytes:
         self.dialogue_calls.append(list(lines))
         self.takes.append(take)
+        self.languages.append(language)
         return to_mp3(Sine(220).to_audio_segment(duration=800, volume=-20))
 
     def sound(self, prompt: str, duration: float | None, loop: bool = False, take: int = 0) -> bytes:
@@ -267,3 +269,22 @@ def test_dry_run_estimates_without_calling_the_api(tmp_path: Path, capsys: pytes
     main(["build", str(script_path), "--dry-run"])
     assert "characters" in capsys.readouterr().out
     assert not (script_path.parent / "build").exists()
+
+
+def test_a_language_change_starts_a_new_request_in_that_language() -> None:
+    cues = [
+        {"voice": "narratore", "text": "Il mostro disse:"},
+        {"voice": "nina", "text": "Hello! My name is Nina.", "lang": "en"},
+        {"voice": "nina", "text": "I am thirteen.", "lang": "en"},
+        {"voice": "narratore", "text": "Ciao, mi chiamo Nina."},
+    ]
+    source = FakeSource()
+    script = parse_script(script_data(scenes=[{"cues": cues}]))
+    render_scene(script.scenes[0], script.voices, source)
+    assert [len(call) for call in source.dialogue_calls] == [1, 2, 1]
+    assert source.languages == ["it", "en", "it"]
+
+
+def test_parse_rejects_a_bad_language() -> None:
+    with pytest.raises(ScriptError, match="lang"):
+        parse_script(script_data(scenes=[{"cues": [{"voice": "nina", "text": "Hi", "lang": "english"}]}]))

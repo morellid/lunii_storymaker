@@ -18,7 +18,7 @@ LOOP_CROSSFADE_MS = 50  # hides the MP3 padding at each ambience loop seam
 
 
 class AudioSource(Protocol):
-    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0) -> bytes: ...
+    def dialogue(self, lines: Sequence[tuple[str, str]], take: int = 0, language: str = "it") -> bytes: ...
 
     def sound(self, prompt: str, duration: float | None, loop: bool = False, take: int = 0) -> bytes: ...
 
@@ -27,12 +27,13 @@ Segment = tuple[Line, ...] | Sfx | Pause
 
 
 def group_lines(cues: Sequence[Cue]) -> list[Segment]:
-    """Consecutive lines become one dialogue request (so voices react to each other), split at the API size limit."""
+    """Consecutive lines become one dialogue request (so voices react to each other), split at the API size limit
+    and where the language changes: a request is spoken in one language."""
     segments: list[Segment] = []
     chunk: list[Line] = []
     for cue in cues:
         if isinstance(cue, Line):
-            if chunk and sum(len(line.text) for line in chunk) + len(cue.text) > MAX_DIALOGUE_CHARS:
+            if chunk and (sum(len(line.text) for line in chunk) + len(cue.text) > MAX_DIALOGUE_CHARS or chunk[0].lang != cue.lang):
                 segments.append(tuple(chunk))
                 chunk = []
             chunk.append(cue)
@@ -65,7 +66,7 @@ def render_scene(scene: Scene, voices: dict[str, str], source: AudioSource) -> A
     for segment in group_lines(scene.cues):
         if isinstance(segment, tuple):
             take = max(line.take for line in segment)
-            audio = _decode(source.dialogue([(voices[line.voice], line.text) for line in segment], take))
+            audio = _decode(source.dialogue([(voices[line.voice], line.text) for line in segment], take, segment[0].lang))
         elif isinstance(segment, Sfx):
             audio = _decode(source.sound(segment.prompt, segment.duration, take=segment.take))
         else:

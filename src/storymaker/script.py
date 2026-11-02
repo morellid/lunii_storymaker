@@ -1,6 +1,7 @@
 """The story script Claude writes, validated before any credits are spent."""
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ class Line:
     voice: str
     text: str
     take: int = 0  # bump to regenerate a line whose text is unchanged
+    lang: str = "it"  # ISO 639-1 code the line is spoken in
 
 
 @dataclass(frozen=True)
@@ -148,7 +150,10 @@ def _parse_cue(raw: dict[str, Any], where: str, voices: dict[str, str]) -> Cue:
                 raise ScriptError(f"{where} has no 'text'")
             if len(text) > MAX_DIALOGUE_CHARS:
                 raise ScriptError(f"{where} is longer than {MAX_DIALOGUE_CHARS} characters, split it")
-            return Line(raw["voice"], text, _take(raw, where))
+            lang = raw.get("lang", "it")
+            if not isinstance(lang, str) or not re.fullmatch(r"[a-z]{2}", lang):
+                raise ScriptError(f"{where} lang must be a two-letter language code like 'en'")
+            return Line(raw["voice"], text, _take(raw, where), lang)
         case "sfx":
             duration = raw.get("duration")
             if duration is not None and not SFX_SECONDS[0] <= _number(duration, where) <= SFX_SECONDS[1]:

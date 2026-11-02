@@ -53,6 +53,7 @@ Every API response is cached in `~/.cache/lunii-storymaker`, keyed by request. E
   - `voice` + `text`: a spoken line. Bracketed audio tags (`[whispers]`, `[laughs]`, `[excited]`...) set the delivery and are not read aloud.
   - `sfx` + optional `duration` (0.5 to 30 seconds): a sound effect, levelled just under the dialogue.
   - `pause`: silence, in seconds.
+  - Lines take an optional `lang` (two-letter code, default `it`) for a character who speaks another language, e.g. `"lang": "en"`. Keep each line in one language: a line is spoken with that language's pronunciation, and a change of language starts a new dialogue request. Cast such characters with native voices (`storymaker voices --language en`).
   - Lines and effects take an optional `take` (integer, default 0). The cache returns the same audio for the same request, so bump `take` to get a new rendition of unchanged text.
 - Consecutive lines are sent as one dialogue request, so the voices react to each other. A sound effect or a pause starts a new request, as does reaching 2,000 characters (the API limit).
 - `choice` (optional) turns the pack into a menu: `scenes` becomes the introduction, then the narrator asks `question` and the Lunii wheel picks one of `options` (`{"title": ..., "scenes": [...]}`, at least 2). Each option shows a card with its title; its story ends back at the question so another can be picked.
