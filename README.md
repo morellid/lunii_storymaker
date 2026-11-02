@@ -61,7 +61,8 @@ Every API response is cached in `~/.cache/lunii-storymaker`, keyed by request. E
   ```json
   "choice": {"question": "Quale traccia vuoi toccare?", "options": [{"title": "La pista nella sabbia", "scenes": [...]}, {"title": "L'orma nel fango", "scenes": [...]}]}
   ```
-- `image` (optional, on the script and on each option): a path, relative to `script.json`, to a light icon on a dark or transparent background. It is centred on black and shown instead of the title, which is hard to read on the Lunii screen. Simple filled silhouettes work best, e.g. [game-icons](https://game-icons.net) via `https://api.iconify.design/game-icons/<name>.svg`.
+- A `choice` can also sit among the `scenes`, as `{"choice": {"question": ..., "options": [...]}}`: a fork in the story. The wheel picks an option, its `scenes` play, then the story goes on with what follows the choice, whatever was picked. Branches hold scenes only. Each part between forks is one audio file (`build/parte-N.mp3`, branches `build/scelta-N-M.mp3`).
+- `image` (required, on the script and on each option): a path, relative to `script.json`, to a light icon on a dark or transparent background, centred on black. Cards carry icons only: text is unreadable on the Lunii screen. Simple filled silhouettes work best, e.g. [game-icons](https://game-icons.net) via `https://api.iconify.design/game-icons/<name>.svg`. For a number, `uv run storymaker glyph "10" icons/10.png` draws up to 3 characters as large as the card allows. The option's `title` is still spoken when the wheel stops on it.
 - `ambience` (optional) is a 30-second loop generated once per scene and repeated under it, `volume_db` below the scene's level (default -20).
 
 ## Tests

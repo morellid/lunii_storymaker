@@ -9,14 +9,15 @@ from pydub import AudioSegment
 from pydub.generators import Sine
 
 from storymaker.cli import build_pack, main
-from storymaker.pack import Menu, MenuOption, cover_png, pack_uuid, write_pack
+from storymaker.pack import Menu, MenuOption, glyph_png, pack_uuid, write_pack
 from storymaker.render import group_lines, render_scene, render_scenes, to_mp3
-from storymaker.script import Line, Pause, ScriptError, Sfx, parse_script
+from storymaker.script import Choice, Line, Pause, ScriptError, Sfx, load_script, parse_script
 
 
 def script_data(**overrides: Any) -> dict[str, Any]:
     data: dict[str, Any] = {
         "title": "Il faro di Nina",
+        "image": "icon.png",
         "narrator": "narratore",
         "voices": {"narratore": "v-narr", "nina": "v-nina"},
         "scenes": [
@@ -147,11 +148,37 @@ def test_render_scenes_is_mono_44k() -> None:
     assert (story.channels, story.frame_rate) == (1, 44100)
 
 
+BRANCH = [{"cues": [{"voice": "nina", "text": "Eccomi!"}]}]
+
+
+def choice_data(*titles: str) -> dict[str, Any]:
+    return {"question": "Quale traccia vuoi toccare?", "options": [{"title": t, "image": "icon.png", "scenes": BRANCH} for t in titles]}
+
+
 def menu_data() -> dict[str, Any]:
-    branch = [{"cues": [{"voice": "nina", "text": "Eccomi!"}]}]
-    return script_data(
-        choice={"question": "Quale traccia vuoi toccare?", "options": [{"title": "La pista", "scenes": branch}, {"title": "L'orma", "scenes": branch}]}
-    )
+    return script_data(choice=choice_data("La pista", "L'orma"))
+
+
+def inline_data() -> dict[str, Any]:
+    scene = {"cues": [{"voice": "narratore", "text": "Poi..."}]}
+    return script_data(scenes=[scene, {"choice": choice_data("Dieci", "Quindici")}, scene])
+
+
+def story_dir(tmp_path: Path, name: str) -> Path:
+    """A story folder with the icon the fixtures point at; returns the script path."""
+    from PIL import Image
+
+    (tmp_path / name).mkdir()
+    Image.new("L", (100, 100), 255).save(tmp_path / name / "icon.png")
+    return tmp_path / name / "script.json"
+
+
+def png() -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("L", (320, 240), 0).save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def test_parse_choice() -> None:
@@ -191,7 +218,7 @@ def tone(hz: int) -> bytes:
 
 def test_single_story_pack_goes_cover_story_cover(tmp_path: Path) -> None:
     path = tmp_path / "faro.zip"
-    write_pack(path, "faro", "Il faro", "", cover_png("Il faro"), tone(300), tone(400))
+    write_pack(path, "faro", "Il faro", "", png(), tone(300), (tone(400),))
     story, stages, actions, names = read_pack(path)
     cover = story["stageNodes"][0]
     assert cover["type"] == "cover" and cover["uuid"] == str(pack_uuid("faro"))
@@ -202,8 +229,8 @@ def test_single_story_pack_goes_cover_story_cover(tmp_path: Path) -> None:
 
 def test_menu_pack_returns_to_the_question_after_each_branch(tmp_path: Path) -> None:
     path = tmp_path / "tracce.zip"
-    options = tuple(MenuOption(cover_png(f"Era {i}"), tone(500 + i), tone(600 + i)) for i in range(3))
-    write_pack(path, "tracce", "Le tracce", "", cover_png("Le tracce"), tone(300), tone(400), Menu(tone(450), options))
+    options = tuple(MenuOption(png(), tone(500 + i), tone(600 + i)) for i in range(3))
+    write_pack(path, "tracce", "Le tracce", "", png(), tone(300), (tone(400),), Menu(tone(450), options))
     story, stages, actions, _ = read_pack(path)
 
     [intro_id] = next_stages(story["stageNodes"][0], actions)
@@ -218,8 +245,7 @@ def test_menu_pack_returns_to_the_question_after_each_branch(tmp_path: Path) -> 
 
 
 def test_build_pack_with_choice_writes_zip_and_branch_mp3s(tmp_path: Path) -> None:
-    script_path = tmp_path / "tracce" / "script.json"
-    script_path.parent.mkdir()
+    script_path = story_dir(tmp_path, "tracce")
     pack = build_pack(parse_script(menu_data()), script_path, FakeSource())
     assert pack == tmp_path / "tracce" / "build" / "tracce.zip"
     assert {p.name for p in pack.parent.glob("*.mp3")} == {"intro.mp3", "1.mp3", "2.mp3"}
@@ -228,14 +254,7 @@ def test_build_pack_with_choice_writes_zip_and_branch_mp3s(tmp_path: Path) -> No
 def test_build_pack_uses_icons_instead_of_text_cards(tmp_path: Path) -> None:
     from PIL import Image
 
-    script_path = tmp_path / "tracce" / "script.json"
-    script_path.parent.mkdir()
-    Image.new("L", (100, 100), 255).save(script_path.parent / "icon.png")
-    data = menu_data()
-    data["image"] = "icon.png"
-    for option in data["choice"]["options"]:
-        option["image"] = "icon.png"
-    pack = build_pack(parse_script(data), script_path, FakeSource())
+    pack = build_pack(parse_script(menu_data()), story_dir(tmp_path, "tracce"), FakeSource())
 
     story, stages, _, _ = read_pack(pack)
     with zipfile.ZipFile(pack) as archive:
@@ -256,15 +275,32 @@ def test_parse_rejects_missing_image_path() -> None:
         parse_script(data)
 
 
-def test_cover_is_lunii_screen_size() -> None:
+def test_cards_need_an_icon_text_is_unreadable_on_the_lunii() -> None:
+    data = script_data()
+    del data["image"]
+    with pytest.raises(ScriptError, match="image"):
+        parse_script(data)
+    data = menu_data()
+    del data["choice"]["options"][1]["image"]
+    with pytest.raises(ScriptError, match="image"):
+        parse_script(data)
+
+
+def test_glyph_is_huge_and_at_most_three_characters() -> None:
     from PIL import Image
 
-    assert Image.open(io.BytesIO(cover_png("Una storia con un titolo molto lungo"))).size == (320, 240)
+    image = Image.open(io.BytesIO(glyph_png("10"))).convert("L")
+    assert image.size == (320, 240)
+    left, top, right, bottom = image.point(lambda v: 255 if v > 128 else 0).getbbox()
+    assert bottom - top > 150
+    plus = Image.open(io.BytesIO(glyph_png("+"))).convert("L").point(lambda v: 255 if v > 128 else 0).getbbox()
+    assert plus[3] - plus[1] > 150
+    with pytest.raises(ValueError):
+        glyph_png("dieci")
 
 
 def test_dry_run_estimates_without_calling_the_api(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    script_path = tmp_path / "faro" / "script.json"
-    script_path.parent.mkdir()
+    script_path = story_dir(tmp_path, "faro")
     script_path.write_text(json.dumps(script_data()), encoding="utf-8")
     main(["build", str(script_path), "--dry-run"])
     assert "characters" in capsys.readouterr().out
@@ -288,3 +324,76 @@ def test_a_language_change_starts_a_new_request_in_that_language() -> None:
 def test_parse_rejects_a_bad_language() -> None:
     with pytest.raises(ScriptError, match="lang"):
         parse_script(script_data(scenes=[{"cues": [{"voice": "nina", "text": "Hi", "lang": "english"}]}]))
+
+
+def test_parse_choice_inside_the_story() -> None:
+    script = parse_script(inline_data())
+    assert isinstance(script.scenes[1], Choice) and [o.title for o in script.scenes[1].options] == ["Dieci", "Quindici"]
+
+
+def test_parse_rejects_a_choice_inside_a_branch() -> None:
+    data = inline_data()
+    data["scenes"][1]["choice"]["options"][0]["scenes"] = [{"choice": choice_data("A", "B")}]
+    with pytest.raises(ScriptError, match="inside a branch"):
+        parse_script(data)
+
+
+def test_branches_of_a_choice_inside_the_story_rejoin_it(tmp_path: Path) -> None:
+    path = tmp_path / "gara.zip"
+    fork = Menu(tone(450), tuple(MenuOption(png(), tone(500 + i), tone(600 + i)) for i in range(2)))
+    write_pack(path, "gara", "La gara", "", png(), tone(300), (tone(400), fork, tone(700)))
+    story, stages, actions, _ = read_pack(path)
+    cover = story["stageNodes"][0]
+
+    [first_id] = next_stages(cover, actions)
+    [question_id] = next_stages(stages[first_id], actions)
+    option_ids = next_stages(stages[question_id], actions)
+    branches = [next_stages(stages[option_id], actions)[0] for option_id in option_ids]
+    assert len({stages[branch]["audio"] for branch in branches}) == 2
+    [after_id] = {next_stages(stages[branch], actions)[0] for branch in branches}
+    assert stages[after_id]["audio"] != stages[first_id]["audio"]
+    assert next_stages(stages[after_id], actions) == [cover["uuid"]]
+    for node_id in [first_id, *branches, after_id]:  # home leaves the story, it does not skip ahead
+        assert actions[stages[node_id]["homeTransition"]["actionNode"]] == [cover["uuid"]]
+
+
+def test_build_pack_with_a_choice_inside_writes_each_part(tmp_path: Path) -> None:
+    pack = build_pack(parse_script(inline_data()), story_dir(tmp_path, "gara"), FakeSource())
+    assert {p.name for p in pack.parent.glob("*.mp3")} == {"parte-1.mp3", "scelta-1-1.mp3", "scelta-1-2.mp3", "parte-2.mp3"}
+
+
+def test_dry_run_counts_the_branches(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    script_path = story_dir(tmp_path, "gara")
+    script_path.write_text(json.dumps(inline_data()), encoding="utf-8")
+    main(["build", str(script_path), "--dry-run"])
+    with_choice = capsys.readouterr().out
+    script_path.write_text(json.dumps(script_data()), encoding="utf-8")
+    main(["build", str(script_path), "--dry-run"])
+    assert int(with_choice.split()[0]) > int(capsys.readouterr().out.split()[0])
+
+
+def test_a_missing_icon_fails_before_anything_is_rendered(tmp_path: Path) -> None:
+    script_path = story_dir(tmp_path, "gara")
+    data = inline_data()
+    data["scenes"][1]["choice"]["options"][1]["image"] = "manca.png"
+    script_path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ScriptError, match="manca.png"):
+        load_script(script_path)
+
+
+def test_parse_rejects_a_choice_with_cues() -> None:
+    data = inline_data()
+    data["scenes"][1]["cues"] = [{"pause": 1}]
+    with pytest.raises(ScriptError, match="either"):
+        parse_script(data)
+
+
+def test_home_on_a_fork_card_goes_to_the_cover(tmp_path: Path) -> None:
+    path = tmp_path / "gara.zip"
+    fork = Menu(tone(450), tuple(MenuOption(png(), tone(500 + i), tone(600 + i)) for i in range(2)))
+    write_pack(path, "gara", "La gara", "", png(), tone(300), (tone(400), fork, tone(700)))
+    story, stages, actions, _ = read_pack(path)
+    cards = [node for node in stages.values() if node["type"] == "menu.optionstage"]
+    assert len(cards) == 2
+    for card in cards:
+        assert actions[card["homeTransition"]["actionNode"]] == [story["stageNodes"][0]["uuid"]]

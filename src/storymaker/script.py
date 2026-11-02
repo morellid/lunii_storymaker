@@ -54,11 +54,14 @@ class Scene:
 class Option:
     title: str
     scenes: tuple[Scene, ...]
-    image: str | None = None  # icon path relative to script.json; without it the card shows the title
+    image: str  # icon path relative to script.json: cards show icons, text is unreadable on the Lunii
 
 
 @dataclass(frozen=True)
 class Choice:
+    """In Script.choice, a menu whose branches return to the question. Among Script.scenes, a fork in the story:
+    each branch plays, then the story goes on with what follows the choice."""
+
     question: str  # read by the narrator, then the wheel picks an option
     options: tuple[Option, ...]
 
@@ -69,13 +72,18 @@ class Script:
     description: str
     narrator: str  # voice name that reads the titles and the question
     voices: dict[str, str]  # voice name -> ElevenLabs voice_id
-    scenes: tuple[Scene, ...]  # the whole story, or the introduction when there is a choice
+    scenes: tuple[Scene | Choice, ...]  # the whole story, or the introduction when there is a menu
+    image: str  # cover icon, as Option.image
     choice: Choice | None = None
-    image: str | None = None  # cover icon, as Option.image
 
 
 def load_script(path: Path) -> Script:
-    return parse_script(json.loads(path.read_text(encoding="utf-8")))
+    script = parse_script(json.loads(path.read_text(encoding="utf-8")))
+    choices = [item for item in script.scenes if isinstance(item, Choice)] + ([script.choice] if script.choice else [])
+    for image in [script.image] + [option.image for choice in choices for option in choice.options]:
+        if not (path.parent / image).is_file():  # caught here, not after the parts before it were paid for
+            raise ScriptError(f"icon {image} not found next to {path.name}")
+    return script
 
 
 def parse_script(data: dict[str, Any]) -> Script:
@@ -90,39 +98,50 @@ def parse_script(data: dict[str, Any]) -> Script:
     narrator = data.get("narrator")
     if narrator not in voices:
         raise ScriptError(f"narrator {narrator!r} is not in 'voices'")
-    scenes = _parse_scenes(data.get("scenes"), "scenes", voices)
-    choice = _parse_choice(data["choice"], voices) if "choice" in data else None
-    return Script(title, str(data.get("description", "")), narrator, dict(voices), scenes, choice, _image(data, "image"))
+    scenes = _parse_scenes(data.get("scenes"), "scenes", voices, forks=True)
+    choice = _parse_choice(data["choice"], "choice", voices) if "choice" in data else None
+    image = _image(data, "image")
+    return Script(title, str(data.get("description", "")), narrator, dict(voices), scenes, image, choice)
 
 
-def _image(raw: dict[str, Any], where: str) -> str | None:
+def _image(raw: dict[str, Any], where: str) -> str:
     image = raw.get("image")
-    if image is not None and (not isinstance(image, str) or not image.strip()):
-        raise ScriptError(f"{where} must be a path to an image file")
+    if not isinstance(image, str) or not image.strip():
+        raise ScriptError(f"{where} must be a path to an icon: cards show icons, text is unreadable on the Lunii")
     return image
 
 
-def _parse_choice(raw: dict[str, Any], voices: dict[str, str]) -> Choice:
+def _parse_choice(raw: dict[str, Any], where: str, voices: dict[str, str]) -> Choice:
     question = str(raw.get("question", "")).strip()
     if not question:
-        raise ScriptError("choice needs a 'question'")
+        raise ScriptError(f"{where} needs a 'question'")
     options = []
     for i, option in enumerate(raw.get("options") or []):
         title = str(option.get("title", "")).strip()
         if not title:
-            raise ScriptError(f"choice.options[{i}] needs a 'title'")
-        scenes = _parse_scenes(option.get("scenes"), f"choice.options[{i}].scenes", voices)
-        options.append(Option(title, scenes, _image(option, f"choice.options[{i}].image")))
+            raise ScriptError(f"{where}.options[{i}] needs a 'title'")
+        scenes = _parse_scenes(option.get("scenes"), f"{where}.options[{i}].scenes", voices, forks=False)
+        options.append(Option(title, scenes, _image(option, f"{where}.options[{i}].image")))
     if len(options) < 2:
-        raise ScriptError("choice needs at least 2 options")
+        raise ScriptError(f"{where} needs at least 2 options")
     return Choice(question, tuple(options))
 
 
-def _parse_scenes(raw: list[dict[str, Any]] | None, where: str, voices: dict[str, str]) -> tuple[Scene, ...]:
-    scenes = tuple(_parse_scene(scene, f"{where}[{i}]", voices) for i, scene in enumerate(raw or []))
-    if not scenes:
-        raise ScriptError(f"'{where}' is empty")
-    return scenes
+def _parse_scenes(raw: list[dict[str, Any]] | None, where: str, voices: dict[str, str], forks: bool) -> tuple[Any, ...]:
+    """Scenes, and with forks also choices among them. Branches hold scenes only."""
+    items: list[Scene | Choice] = []
+    for i, item in enumerate(raw or []):
+        if "choice" not in item:
+            items.append(_parse_scene(item, f"{where}[{i}]", voices))
+        elif set(item) != {"choice"}:
+            raise ScriptError(f"{where}[{i}] is either a scene or a choice, not both")
+        elif not forks:
+            raise ScriptError(f"{where}[{i}]: a choice cannot sit inside a branch")
+        else:
+            items.append(_parse_choice(item["choice"], f"{where}[{i}].choice", voices))
+    if not any(isinstance(item, Scene) for item in items):
+        raise ScriptError(f"'{where}' has no scenes")
+    return tuple(items)
 
 
 def _parse_scene(raw: dict[str, Any], where: str, voices: dict[str, str]) -> Scene:

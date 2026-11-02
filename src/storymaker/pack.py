@@ -1,19 +1,18 @@
 """Writes a STUdio-format pack (story.json + assets/) that Lunii.QT imports directly.
 
-Without a menu: cover -> story -> back to the cover.
-With a menu (same node layout as packs made in STUdio): cover -> introduction -> question -> the wheel picks
-an option -> its story -> back to the question, so the listener can pick another.
+The story is a flow of parts: audio, or a fork where the wheel picks an option and its branch plays before the
+story goes on. Without a menu the flow ends back at the cover. With a menu (same node layout as packs made in
+STUdio) it ends at a question -> the wheel picks an option -> its story -> back to the question.
 """
 
 import hashlib
 import io
 import json
-import textwrap
 import uuid
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -44,12 +43,21 @@ def pack_uuid(slug: str) -> uuid.UUID:
     return uuid.uuid5(NAMESPACE, slug)
 
 
-def cover_png(title: str) -> bytes:
-    image = Image.new("RGB", COVER_SIZE, (20, 30, 70))
+def glyph_png(text: str) -> bytes:
+    """1 to 3 characters (a number like 10) drawn as large as the card allows: the only text the Lunii screen shows legibly."""
+    text = text.strip()
+    if not 1 <= len(text) <= 3:
+        raise ValueError("a card glyph is 1 to 3 characters: anything longer is unreadable, use an icon")
+    image = Image.new("L", COVER_SIZE, 0)
     draw = ImageDraw.Draw(image)
-    font = ImageFont.load_default(size=30)
-    text = "\n".join(textwrap.wrap(title, width=16))
-    draw.multiline_text((COVER_SIZE[0] / 2, COVER_SIZE[1] / 2), text, font=font, fill="white", anchor="mm", align="center", spacing=8)
+    size = COVER_SIZE[1] * 3  # shrinks until the drawn glyph fits, so small glyphs like + still fill the card
+    while True:
+        font = ImageFont.load_default(size=size)
+        left, top, right, bottom = draw.textbbox((0, 0), text, font=font, stroke_width=size // 20)
+        if (right - left <= COVER_SIZE[0] - 20 and bottom - top <= COVER_SIZE[1] - 20) or size <= 20:
+            break
+        size -= 8
+    draw.text((COVER_SIZE[0] / 2, COVER_SIZE[1] / 2), text, font=font, fill=255, anchor="mm", stroke_width=size // 20, stroke_fill=255)
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -77,19 +85,38 @@ def write_pack(
     description: str,
     cover: bytes,
     title_mp3: bytes,
-    story_mp3: bytes,
+    flow: Sequence[bytes | Menu],
     menu: Menu | None = None,
 ) -> None:
-    """story_mp3 is the whole story, or the introduction played before the menu."""
+    """flow is the story (or the introduction played before the menu): audio parts, and forks whose branches rejoin it."""
     graph = _Graph(pack_uuid(slug))  # Lunii.QT takes the first stage node's uuid as the pack uuid
     cover_id = graph.stage("cover", "cover", title, cover, title_mp3, COVER, squareOne=True)
-    story_id = graph.stage("story", "story", title, None, story_mp3, STORY)
-    graph.link(cover_id, [story_id])
+    ends = [cover_id]  # stages whose OK, or the end of their audio, goes to what comes next
+
+    def go_on(target: str) -> None:
+        for source in ends:  # home leaves the story for the cover, it never skips ahead
+            graph.link(source, [target], home_targets=None if source == cover_id else [cover_id])
+
+    for i, part in enumerate(flow):
+        if isinstance(part, bytes):
+            part_id = graph.stage("story" if i == 0 else f"part-{i}", "story", title, None, part, STORY)
+            go_on(part_id)
+            ends = [part_id]
+            continue
+        question_id = graph.stage(f"fork-{i}", "menu.questionstage", "Question", None, part.question_mp3, QUESTION)
+        go_on(question_id)
+        ends = []
+        option_ids = []
+        for j, option in enumerate(part.options):
+            option_ids.append(graph.stage(f"fork-{i}-option-{j}", "menu.optionstage", f"Option {j + 1}", option.image, option.title_mp3, OPTION))
+            ends.append(graph.stage(f"fork-{i}-story-{j}", "story", f"Branch {j + 1}", None, option.story_mp3, STORY))
+            graph.link(option_ids[-1], [ends[-1]], home_targets=[cover_id])
+        graph.link(question_id, option_ids)
     if menu is None:
-        graph.link(story_id, [cover_id], home=True)
+        go_on(cover_id)
     else:
         question_id = graph.stage("question", "menu.questionstage", "Question", None, menu.question_mp3, QUESTION)
-        graph.link(story_id, [question_id], home=True)
+        go_on(question_id)
         option_ids = [
             graph.stage(f"option-{i}", "menu.optionstage", f"Option {i + 1}", option.image, option.title_mp3, OPTION)
             for i, option in enumerate(menu.options)
@@ -98,7 +125,7 @@ def write_pack(
         for i, (option_id, option) in enumerate(zip(option_ids, menu.options)):
             branch_id = graph.stage(f"story-{i}", "story", f"Story {i + 1}", None, option.story_mp3, STORY)
             graph.link(option_id, [branch_id])
-            graph.link(branch_id, [question_id], home=True)
+            graph.link(branch_id, [question_id], home_targets=[question_id])
 
     # Lunii.QT renames each asset to the last 8 characters of its name, so those must not collide.
     if len({name.split(".")[0][-8:] for name in graph.assets.values()}) != len(graph.assets):
@@ -145,15 +172,18 @@ class _Graph:
         }
         return node_id
 
-    def link(self, source: str, targets: list[str], home: bool = False) -> None:
-        """OK (or the end of an autoplayed audio) on source goes to an action node offering targets."""
+    def link(self, source: str, targets: list[str], home_targets: list[str] | None = None) -> None:
+        """OK (or the end of an autoplayed audio) on source goes to an action node offering targets; Home, if given,
+        to one offering home_targets."""
+        self.stages[source]["okTransition"] = self._action(source, targets)
+        if home_targets:
+            self.stages[source]["homeTransition"] = self._action(source, home_targets)
+
+    def _action(self, source: str, targets: list[str]) -> dict[str, Any]:
         action_id = str(uuid.uuid5(self.root, f"{source}->{','.join(targets)}"))
         if all(action["id"] != action_id for action in self.actions):
             self.actions.append({"id": action_id, "name": "Action", "position": None, "options": targets})
-        transition = {"actionNode": action_id, "optionIndex": 0}
-        self.stages[source]["okTransition"] = transition
-        if home:
-            self.stages[source]["homeTransition"] = transition
+        return {"actionNode": action_id, "optionIndex": 0}
 
     def _asset(self, data: bytes, ext: str) -> str:
         return self.assets.setdefault(data, f"{hashlib.sha1(data).hexdigest()}.{ext}")
